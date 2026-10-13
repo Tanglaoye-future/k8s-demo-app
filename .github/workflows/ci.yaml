@@ -11,14 +11,15 @@ permissions:
   contents: write         # 需要回写本仓库的 manifests/
   packages: write         # 需要推镜像到 GHCR
 
-env:
-  IMAGE: ghcr.io/${{ github.repository }}
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # 0. 镜像名必须全小写（GitHub 用户名可能含大写）
+      - name: 计算镜像名
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       # 1. 从 index.html 提取版本号作为镜像 tag（v1 → ghcr.io/.../k8s-demo-app:v1）
       - name: 提取版本号
