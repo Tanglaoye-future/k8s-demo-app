@@ -1,0 +1,59 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'          # 只有应用代码变了才触发构建
+  workflow_dispatch: {}
+
+permissions:
+  contents: write         # 需要回写本仓库的 manifests/
+  packages: write         # 需要推镜像到 GHCR
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. 从 index.html 提取版本号作为镜像 tag（v1 → ghcr.io/.../k8s-demo-app:v1）
+      - name: 提取版本号
+        id: ver
+        run: |
+          V=$(grep -oE 'VERSION v[0-9]+' app/index.html | grep -oE 'v[0-9]+')
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "本次构建版本: $V"
+
+      # 2. 构建并推送镜像
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          push: true
+          tags: ${{ env.IMAGE }}:${{ steps.ver.outputs.version }}
+
+      # 3. 更新 GitOps 清单（声明式世界里的"发布"）
+      - name: 更新 manifests 中的镜像 tag
+        run: |
+          sed -i "s|image: ${IMAGE}:v[0-9]*|image: ${IMAGE}:${{ steps.ver.outputs.version }}|" manifests/deployment.yaml
+          grep "image:" manifests/deployment.yaml
+
+      - name: 提交清单变更
+        run: |
+          git config user.email "ci@github-actions"
+          git config user.name "github-actions[bot]"
+          git add manifests/deployment.yaml
+          git diff --cached --quiet && echo "版本无变化，跳过提交" && exit 0
+          git commit -m "deploy: ${{ steps.ver.outputs.version }} [skip ci]"
+          git push
