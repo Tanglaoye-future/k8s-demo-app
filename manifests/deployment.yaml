@@ -22,7 +22,7 @@ spec:
         - name: ghcr-secret      # 私有镜像仓库的拉取凭证（在集群中单独创建，不进 Git）
       containers:
         - name: web
-          image: ghcr.io/tanglaoye-future/k8s-demo-app:v1
+          image: ghcr.io/tanglaoye-future/k8s-demo-app:v2
           ports:
             - containerPort: 80
 ---
