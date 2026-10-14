@@ -1,0 +1,12 @@
+# 让 nginx 暴露 stub_status 指标端点（只监听 Pod 内部 8080）
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cicd-demo-nginx-conf
+  namespace: cicd-demo
+data:
+  stub.conf: |
+    server {
+      listen 8080;
+      location /stub_status { stub_status; }
+    }

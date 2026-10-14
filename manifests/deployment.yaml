@@ -20,19 +20,84 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-secret      # 私有镜像仓库的拉取凭证（在集群中单独创建，不进 Git）
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: cicd-demo-nginx-conf
       containers:
         - name: web
           image: ghcr.io/tanglaoye-future/k8s-demo-app:v2
           ports:
             - containerPort: 80
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/stub.conf
+              subPath: stub.conf
+        # 指标导出 sidecar：把 stub_status 翻译成 Prometheus 格式
+        - name: metrics-exporter
+          image: nginx/nginx-prometheus-exporter:1.5.1
+          args:
+            - --nginx.scrape-uri=http://127.0.0.1:8080/stub_status
+          ports:
+            - containerPort: 9113
+              name: metrics
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: cicd-demo
   namespace: cicd-demo
+  labels:
+    app: cicd-demo          # ServiceMonitor 是按 Service 的标签匹配的
 spec:
   selector:
     app: cicd-demo
   ports:
     - port: 80
+    - name: metrics
+      port: 9113
+---
+# 告诉 Prometheus：来刮这个 Service 的 /metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cicd-demo
+  namespace: cicd-demo
+  labels:
+    release: monitor        # kube-prometheus-stack 默认只认领带此标签的 ServiceMonitor
+spec:
+  selector:
+    matchLabels:
+      app: cicd-demo
+  endpoints:
+    - port: metrics
+      interval: 15s
+---
+# 告警规则：应用挂了 / 5xx 比例过高
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cicd-demo-alerts
+  namespace: cicd-demo
+  labels:
+    release: monitor
+spec:
+  groups:
+    - name: cicd-demo
+      rules:
+        - alert: CicdDemoDown
+          expr: absent(nginx_up{namespace="cicd-demo"} == 1)
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cicd-demo 指标消失，应用可能全挂"
+        - alert: CicdDemoHigh5xx
+          expr: |
+            sum(rate(nginx_http_requests_total{namespace="cicd-demo",status=~"5.."}[5m]))
+              / sum(rate(nginx_http_requests_total{namespace="cicd-demo"}[5m])) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "cicd-demo 5xx 比例超过 5%"
