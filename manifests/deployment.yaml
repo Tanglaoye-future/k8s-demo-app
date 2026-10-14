@@ -53,7 +53,8 @@ spec:
   selector:
     app: cicd-demo
   ports:
-    - port: 80
+    - name: http          # 多端口 Service 的每个端口都必须命名，否则 API 拒绝
+      port: 80
     - name: metrics
       port: 9113
 ---
